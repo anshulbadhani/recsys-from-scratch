@@ -65,7 +65,7 @@ struct Interaction {
 /**
  * @brief To make the code more readable and short
  */
-typedef vector<array<float, DIM>> embedding_t;
+typedef array<float, DIM> embedding_t;
 
 /**
  * @brief Loads item embedding vectors and the bidirectional ASIN ↔ row index.
@@ -92,7 +92,7 @@ typedef vector<array<float, DIM>> embedding_t;
 void load_embeddings(
     const string &emb_path,
     const string &idx_path,
-    embedding_t& embeddings,
+    vector<embedding_t>& embeddings,
     unordered_map<string, int>& asin_to_idx,
     unordered_map<int, string>& idx_to_asin
 );

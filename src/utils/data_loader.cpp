@@ -54,7 +54,7 @@ static vector<string> split_csv(const string &line) { // Why static?
 void load_embeddings(
     const string &emb_path,
     const string &idx_path,
-    embedding_t &embeddings,
+    vector<embedding_t> &embeddings,
     unordered_map<string, int> &asin_to_idx,
     unordered_map<int, string> &idx_to_asin
 ){
