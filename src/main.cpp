@@ -241,7 +241,7 @@ static void test_load_train(
         total_interactions += history.size();
     }
 
-    CHECK(min_interactions_ok, "all users have >= 5 interactions");
+    CHECK(min_interactions_ok, "all users have >= 4 interactions");
 
     // Ratings must be in [1.0, 5.0]
     bool ratings_valid = true;
@@ -291,10 +291,23 @@ static void test_load_test(
     // Ground truth item must NOT appear in the user's train history
     // (leave-one-out guarantee — no leakage)
     bool no_leakage = true;
+    // for (auto& [user, gt_asin] : ground_truth) {
+    //     auto& history = user_history.at(user);
+    //     for (auto& inter : history)
+    //         if (inter.asin == gt_asin) { no_leakage = false; break; }
+    //     if (!no_leakage) break;
+    // }
     for (auto& [user, gt_asin] : ground_truth) {
         auto& history = user_history.at(user);
-        for (auto& inter : history)
-            if (inter.asin == gt_asin) { no_leakage = false; break; }
+        for (auto& inter : history) {
+            if (inter.asin == gt_asin) {
+                // Print the offending user before failing
+                std::cout << "  [INFO] leakage detected — user: " << user
+                        << "  asin: " << gt_asin << "\n";
+                no_leakage = false;
+                break;
+            }
+        }
         if (!no_leakage) break;
     }
 
