@@ -16,6 +16,7 @@
 
 #include "data_loader.h"
 #include "bloom_filter.h"
+#include "user_embedding.h"
 
 #include <iostream>
 #include <cassert>
@@ -241,7 +242,7 @@ static void test_load_train(
         total_interactions += history.size();
     }
 
-    CHECK(min_interactions_ok, "all users have >= 5 interactions");
+    CHECK(min_interactions_ok, "all users have >= 4 interactions");
 
     // Ratings must be in [1.0, 5.0]
     bool ratings_valid = true;
@@ -291,10 +292,23 @@ static void test_load_test(
     // Ground truth item must NOT appear in the user's train history
     // (leave-one-out guarantee — no leakage)
     bool no_leakage = true;
+    // for (auto& [user, gt_asin] : ground_truth) {
+    //     auto& history = user_history.at(user);
+    //     for (auto& inter : history)
+    //         if (inter.asin == gt_asin) { no_leakage = false; break; }
+    //     if (!no_leakage) break;
+    // }
     for (auto& [user, gt_asin] : ground_truth) {
         auto& history = user_history.at(user);
-        for (auto& inter : history)
-            if (inter.asin == gt_asin) { no_leakage = false; break; }
+        for (auto& inter : history) {
+            if (inter.asin == gt_asin) {
+                // Print the offending user before failing
+                std::cout << "  [INFO] leakage detected — user: " << user
+                        << "  asin: " << gt_asin << "\n";
+                no_leakage = false;
+                break;
+            }
+        }
         if (!no_leakage) break;
     }
 
@@ -371,6 +385,87 @@ static void test_end_to_end(
     CHECK(all_embedded, "all train items have embeddings");
 }
 
+static void test_user_embedding(
+    const std::unordered_map<std::string, std::vector<Interaction>>& user_history,
+    const std::vector<std::array<float, DIM>>& embeddings,
+    const std::unordered_map<std::string, int>& asin_to_idx
+) {
+    print_section("7. compute_user_embedding()");
+
+    // ── 7a. Single user embedding ──────────────────────────────────────────
+    auto sample_user = user_history.begin()->first;
+    auto& history    = user_history.at(sample_user);
+
+    auto user_vec = compute_user_embedding(history, embeddings, asin_to_idx);
+
+    // Must be unit length — dot product == cosine similarity in KD-tree
+    float norm = 0.0f;
+    for (float v : user_vec) norm += v * v;
+    norm = std::sqrt(norm);
+    std::cout << "  [INFO] sample user vec norm: " << norm << "\n";  // ← add this
+    CHECK(std::abs(norm - 1.0f) < 1e-3f, "user embedding is unit-normalised");
+
+    // Must not be all zeros
+    bool nonzero = false;
+    for (float v : user_vec) if (std::abs(v) > 1e-9f) { nonzero = true; break; }
+    CHECK(nonzero, "user embedding is non-zero");
+
+    // ── 7b. Rating weight effect ───────────────────────────────────────────
+    // A user who only rated one item 5 stars vs 1 star should produce
+    // different embeddings (different weights pull vector differently
+    // when history has more than one item)
+    if (history.size() >= 2) {
+        // Build two fake single-item histories with different ratings
+        std::vector<Interaction> high_rating = {{ history[0].asin, 5.0f }};
+        std::vector<Interaction> low_rating  = {{ history[0].asin, 1.0f }};
+
+        auto vec_high = compute_user_embedding(high_rating, embeddings, asin_to_idx);
+        auto vec_low  = compute_user_embedding(low_rating,  embeddings, asin_to_idx);
+
+        // Single item — weight cancels out in normalisation, vectors should be equal
+        float diff = 0.0f;
+        for (int d = 0; d < DIM; d++)
+            diff += std::abs(vec_high[d] - vec_low[d]);
+
+        CHECK(diff < 1e-3f,
+              "single-item history: rating weight cancels in normalisation");
+    }
+
+    // ── 7c. All users ──────────────────────────────────────────────────────
+    auto all_vecs = compute_all_user_embeddings(user_history, embeddings, asin_to_idx);
+
+    CHECK(!all_vecs.empty(), "compute_all_user_embeddings returns non-empty map");
+    CHECK(all_vecs.size() <= user_history.size(),
+          "no more user embeddings than users in train");
+
+    float worst_norm = 0.0f;
+    std::string worst_user;
+    for (auto& [uid, vec] : all_vecs) {
+        float n = 0.0f;
+        for (float v : vec) n += v * v;
+        n = std::sqrt(n);
+        if (std::abs(n - 1.0f) > std::abs(worst_norm - 1.0f)) {
+            worst_norm = n;
+            worst_user = uid;
+        }
+    }
+    std::cout << "  [INFO] worst norm: " << worst_norm
+            << "  user: " << worst_user << "\n";
+
+    // Spot check — all returned embeddings are unit normalised
+    bool all_normalised = true;
+    for (auto& [uid, vec] : all_vecs) {
+        float n = 0.0f;
+        for (float v : vec) n += v * v;
+        if (std::abs(std::sqrt(n) - 1.0f) > 1e-3f) { all_normalised = false; break; }
+    }
+    CHECK(all_normalised, "all user embeddings are unit-normalised");
+
+    std::cout << "  [INFO] sample user:      " << sample_user        << "\n";
+    std::cout << "  [INFO] history length:   " << history.size()     << "\n";
+    std::cout << "  [INFO] total users embedded: " << all_vecs.size()<< "\n";
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -407,6 +502,8 @@ int main() {
     test_load_train(user_history);
     test_load_test(ground_truth, user_history);
     test_end_to_end(user_history, ground_truth, asin_to_idx);
+    auto user_embeddings = compute_all_user_embeddings(user_history, embeddings, asin_to_idx);
+    test_user_embedding(user_history, embeddings, asin_to_idx);
 
     // ── Summary ────────────────────────────────────────────────────────────
     std::cout << "\n══════════════════════════════════════\n";
