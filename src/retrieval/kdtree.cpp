@@ -34,30 +34,38 @@
 #include <cmath>
 #include <iostream>
 
+using std::vector,
+    std::cout,
+    std::iota,
+    std::unique_ptr,
+    std::make_unique,
+    std::move,
+    std::nth_element,
+    std::priority_queue;
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
 
-KDTree::KDTree(const std::vector<embedding_t>& embeddings)
+KDTree::KDTree(const vector<embedding_t>& embeddings)
     : embeddings_(embeddings)
 {
     // Build index over all item rows
-    std::vector<int> all_indices(embeddings.size());
-    std::iota(all_indices.begin(), all_indices.end(), 0);  // 0, 1, 2, ..., n-1
+    vector<int> all_indices(embeddings.size());
+    iota(all_indices.begin(), all_indices.end(), 0);  // 0, 1, 2, ..., n-1
 
-    root_ = build(std::move(all_indices));
+    root_ = build(move(all_indices));
 
-    std::cout << "[kdtree] built over " << embeddings.size() << " items"
+    cout << "[kdtree] built over " << embeddings.size() << " items"
               << "  leaf_size=" << LEAF_SIZE << "\n";
 }
 
 
-std::unique_ptr<KDTree::Node> KDTree::build(std::vector<int> indices) {
-    auto node = std::make_unique<Node>();
+unique_ptr<KDTree::Node> KDTree::build(vector<int> indices) {
+    auto node = make_unique<Node>();
 
     // Base case — small enough to search exhaustively at query time
     if (static_cast<int>(indices.size()) <= LEAF_SIZE) {
-        node->indices   = std::move(indices);
+        node->indices   = move(indices);
         node->split_dim = -1;
         node->split_val = 0.0f;
         return node;
@@ -68,32 +76,38 @@ std::unique_ptr<KDTree::Node> KDTree::build(std::vector<int> indices) {
 
     // Sort by split dimension — O(n log n)
     // After sort, median element gives a balanced split
-    std::sort(indices.begin(), indices.end(), [&](int a, int b) {
-        return embeddings_[a][node->split_dim] < embeddings_[b][node->split_dim];
-    });
+    // sort(indices.begin(), indices.end(), [&](int a, int b) {
+    //     return embeddings_[a][node->split_dim] < embeddings_[b][node->split_dim];
+    // });
+
+    // replaced with nth_element to prevent complete sorting
 
     // Split on median — guarantees balanced tree → O(log n) depth
-    int median      = static_cast<int>(indices.size()) / 2;
-    node->split_val = embeddings_[indices[median]][node->split_dim];
+    // O(n) per level × O(log n) levels = O(n log n) total
+    int median = static_cast<int>(indices.size()) / 2;
+    nth_element(indices.begin(), indices.begin() + median, indices.end(),
+        [&](int a, int b) {
+            return embeddings_[a][node->split_dim] < embeddings_[b][node->split_dim];
+        });
 
     // Partition: left gets [0, median), right gets [median, n)
-    std::vector<int> left_idx (indices.begin(), indices.begin() + median);
-    std::vector<int> right_idx(indices.begin() + median, indices.end());
+    vector<int> left_idx (indices.begin(), indices.begin() + median);
+    vector<int> right_idx(indices.begin() + median, indices.end());
 
-    node->left  = build(std::move(left_idx));
-    node->right = build(std::move(right_idx));
+    node->left  = build(move(left_idx));
+    node->right = build(move(right_idx));
 
     return node;
 }
 
-int KDTree::highest_variance_dim(const std::vector<int>& indices) const {
+int KDTree::highest_variance_dim(const vector<int>& indices) const {
     int   best_dim = 0;
     float best_var = -1.0f;
     int   n        = static_cast<int>(indices.size());
 
     // Contiguous buffer — Welford pass reads this sequentially
     // Allocated once per call, reused across all DIM iterations
-    std::vector<float> dim_vals(n);
+    vector<float> dim_vals(n);
 
     for (int d = 0; d < DIM; d++) {
 
@@ -142,22 +156,22 @@ int KDTree::highest_variance_dim(const std::vector<int>& indices) const {
     return best_dim;
 }
 
-std::vector<KNNResult> KDTree::query(const embedding_t& query, int k) const {
+vector<KNNResult> KDTree::query(const embedding_t& query, int k) const {
     // Max-heap — worst result (largest distance) at top
     // When heap is full and we find a better candidate:
     //   pop worst → push new → O(log k)
-    std::priority_queue<KNNResult, std::vector<KNNResult>, KNNComparator> heap;
+    priority_queue<KNNResult, vector<KNNResult>, KNNComparator> heap;
 
     search(root_.get(), query, k, heap);
 
     // Drain heap into vector and sort ascending (closest first)
-    std::vector<KNNResult> results;
+    vector<KNNResult> results;
     results.reserve(heap.size());
     while (!heap.empty()) {
         results.push_back(heap.top());
         heap.pop();
     }
-    std::sort(results.begin(), results.end(), [](const KNNResult& a, const KNNResult& b) {
+    sort(results.begin(), results.end(), [](const KNNResult& a, const KNNResult& b) {
         return a.squared_dist < b.squared_dist;
     });
 
@@ -168,7 +182,7 @@ void KDTree::search(
     const Node* node,
     const embedding_t& query,
     int k,
-    std::priority_queue<KNNResult, std::vector<KNNResult>, KNNComparator>& heap
+    priority_queue<KNNResult, vector<KNNResult>, KNNComparator>& heap
 ) const {
     if (node == nullptr) return;
 
