@@ -253,3 +253,44 @@ recsys-from-scratch — data loader + bloom filter tests
 ══════════════════════════════════════
 ```
 1 test is failing: maybe because of data duplication in the dataset (same millisecond timestamp issue) causing data leak. Investigate dataset and update 03_filtering.py
+
+
+### Evaluation
+- The first script without any optimizations took
+[pipeline] 10000 / 146980  (1167.79s  8.56321 users/s)
+
+- The first script with max compiler optimizations took
+[pipeline] 3800 / 146980  (132.91s  28.5907 users/s)
+
+- After reducing the number of candidates to rank after kdtree from 500 to 100
+[pipeline] 600 / 146980  (18.9958s  31.5859 users/s)
+
+- After replacing l2_squared with SIMD dot product
+[pipeline] 146900 / 146980  (2270.07s  64.7117 users/s)
+[pipeline] done.  processed=146980  skipped=0  time=2271.29s  avg=15.453ms/user
+Ground truth users: 146,980
+── cosine_sort ──
+ K  Recall@K   NDCG@K  n_users
+ 5  0.010484 0.006770   146980
+10  0.016846 0.008808   146980
+20  0.016846 0.008808   146980 // we only save top 20 recs that is why it is same
+── adaptive_mmr ──
+ K  Recall@K   NDCG@K  n_users
+ 5  0.009729 0.006577   146980
+10  0.011798 0.007240   146980
+20  0.011798 0.007240   146980 // we only save top 20 recs that is why it is same
+
+- After OMP
+[pipeline] inferred 600 / 146980  (2.46439s  243.468 users/s)
+[pipeline] done.  processed=146980  skipped=0  time=640.556s  avg=4.35812ms/user
+── cosine_sort ──
+ K  Recall@K   NDCG@K  n_users
+ 5  0.010484 0.006770   146980
+10  0.016846 0.008808   146980
+20  0.016846 0.008808   146980
+
+── adaptive_mmr ──
+ K  Recall@K   NDCG@K  n_users
+ 5  0.009729 0.006577   146980
+10  0.011798 0.007240   146980
+20  0.011798 0.007240   146980
