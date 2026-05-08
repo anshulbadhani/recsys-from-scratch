@@ -228,7 +228,7 @@ def mrr_at_k(recommended: list, ground_truth: str, k: int) -> float:
 def evaluate(results_df: pd.DataFrame,
              ground_truth: dict,
              catalog_size: int,
-             ks: list =[5, 10, 20]) -> pd.DataFrame:
+             ks: list =[5, 10, 20, 30]) -> pd.DataFrame:
     """Evaluates a results dataframe against ground truth."""
     rec_cols = [c for c in results_df.columns if c.startswith('rec_')]
 
@@ -336,7 +336,7 @@ print(f"{'Method':<16} {'Recall@10':>10} {'NDCG@10':>10} {'MRR@10':>10} {'Covera
 print("─" * 68)
 
 for name, metrics_df in results.items():
-    row = metrics_df[metrics_df['K'] == 10].iloc[0]
+    row = metrics_df[metrics_df['K'] == 20].iloc[0]
     print(f"{name:<16} {row['Recall@K']:>10.6f} {row['NDCG@K']:>10.6f} {row['MRR@K']:>10.6f} {row['Coverage']*100:>10.2f}%")
 
 # ---------------------------------------------------------------------------
@@ -347,7 +347,7 @@ log_entry = {
     'dim':          64,            # Or whatever DIM you used!
     'weight_scheme': 'signed',     # Rating - 3 / 2
     'metrics': {
-        name: metrics_df[metrics_df['K'] == 10].iloc[0].to_dict()
+        name: metrics_df[metrics_df['K'] == 20].iloc[0].to_dict()
         for name, metrics_df in results.items()
     }
 }

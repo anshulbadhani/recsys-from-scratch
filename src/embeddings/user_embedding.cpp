@@ -6,6 +6,7 @@
  *   - Weight per item = rating / 5.0, mapping [1,5] → [0.2, 1.0]
  *   - A 1-star item still contributes (weight 0.2) but less than 5-star (1.0)
  *   - Final vector is L2-normalised to unit length
+ * TODO: Out-dated formula
  *
  * Why weighted average over simple average:
  *   A user who rated item A 5 stars and item B 1 star has a clear preference.
@@ -75,7 +76,7 @@ embedding_t compute_user_embedding(
         // A 1-star review still contributes — it places the user
         // near that item's region, but with less conviction than 5 stars.
         // float weight = interaction.rating / 5.0f;
-        float weight = interaction.rating - 3.0f;  
+        float weight = (interaction.rating - 3.0f) / 2.0f;  
         int   row    = it->second;
 
         for (int d = 0; d < DIM; d++)

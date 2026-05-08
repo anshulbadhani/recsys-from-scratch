@@ -2,3 +2,19 @@
 - [x] Add a project structure section in readme (tree output)
 - [x] Results section
 - [x] Proper References Section
+- [x] System Arch: Ranker Retriever
+- [ ] Include varience retention vs PCA reduction graph in the report
+- [x] Include Pipeline diagram
+- [x] Include Latency Pie-chart
+- [x] Include Amdahl graph
+- [ ] Include figures for KD-Tree in higher dimension (2d proj of a higher dimensional hypercube for my argument)
+- [x] Resolve Section references
+- [ ] Resolve TODOs in the report and project code
+- [x] Remove redundant PCA Sections
+- [x] Resolve the proof sections and algo explaination section redundancy
+- [ ] Symbol legend
+- [ ] Latency Comparision Graphs
+- [x] Recall vs Coverage Plots
+- [ ] Params vs K Plots
+- [ ] Latency vs Recall Graph
+- [ ] 2D PCA Project graph of some users
