@@ -19,6 +19,13 @@
 #include <iostream>
 #include <chrono>
 #include <atomic>
+#include <cstdint>
+
+inline uint64_t rdtsc() {
+    uint32_t lo, hi;
+    __asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi << 32) | lo;
+}
 
 using namespace std;
 
@@ -147,13 +154,15 @@ UserRecommendations Pipeline::infer(const string& user_id) const {
     recs.user_id = user_id;
 
     // 1. Look up user history
+    auto t0 = rdtsc();
     auto it = user_history_.find(user_id);
     if (it == user_history_.end()) {
         cerr << "[pipeline] user not found in train: " << user_id << "\n";
         return recs;
     }
     const auto& history = it->second;
-
+    
+    auto t1 = rdtsc();
     // 2. Compute user embedding
     embedding_t user_vec = compute_user_embedding(history, embeddings_, asin_to_idx_);
 
@@ -165,10 +174,12 @@ UserRecommendations Pipeline::infer(const string& user_id) const {
         return recs;
     }
 
+    auto t2 = rdtsc();
     // 3. KD-tree query
     // Fetch more candidates than needed — Bloom filter will reduce the pool
     auto candidates = tree_.query(user_vec, config_.candidate_pool);
 
+    auto t3 = rdtsc();
     // 4. Bloom filter — exclude seen items
     BloomFilter seen(static_cast<int>(history.size()), config_.bloom_fp_rate);
     for (const auto& inter : history)
@@ -186,15 +197,21 @@ UserRecommendations Pipeline::infer(const string& user_id) const {
         cerr << "[pipeline] all candidates filtered for user: " << user_id << "\n";
         return recs;
     }
-
+    
+    auto t4 = rdtsc();
     // 5. Rank
     auto cosine_ranked = ranker_.cosine_sort(user_vec, unseen, config_.top_k);
     auto mmr_ranked    = ranker_.adaptive_mmr(user_vec, unseen, config_.top_k, config_.mmr);
 
+    auto t5 = rdtsc();
     // 6. Convert row indices → ASINs
     recs.cosine_asins = to_asins(cosine_ranked, config_.top_k);
     recs.mmr_asins    = to_asins(mmr_ranked,    config_.top_k);
 
+    auto t6 = rdtsc();
+
+    printf("User History Lookup: %lu cycles\nUser Vector Computation: %lu cycles\nKD-Tree Query: %lu cycles\nBloom Filter: %lu cycles\nRanking: %lu cycles\n Convertion to asin: %lu cycles",
+       t1-t0, t2-t1, t3-t2, t4-t3, t5-t4, t6-t5);
     return recs;
 }
 

@@ -7,7 +7,7 @@
  * at each split, improving pruning during search.
  *
  * Complexity:
- *   Build : O(n log² n)  — O(log n) levels, O(n log n) sort per level
+ *   Build : O(n log² n)  — O(log n) levels, O(n log n); sort per level TODO: Upate the sort time
  *   Query : O(log n) best case, O(n) worst case
  *
  * Curse of dimensionality:

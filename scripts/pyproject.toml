@@ -13,4 +13,5 @@ dependencies = [
     "implicit",
     "tqdm",
     "pyarrow>=23.0.1",
+    "seaborn>=0.13.2",
 ]

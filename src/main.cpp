@@ -681,7 +681,7 @@ int main(int argc, char* argv[]) {
 
         PipelineConfig cfg;
         cfg.candidate_pool = 100;
-        cfg.top_k          = 10;
+        cfg.top_k          = 30;
         cfg.mmr            = {1.0f, 0.2f};
 
         Pipeline pipeline(embeddings, asin_to_idx, idx_to_asin,
@@ -725,7 +725,7 @@ int main(int argc, char* argv[]) {
 
     PipelineConfig cfg;
     cfg.candidate_pool = 500;
-    cfg.top_k          = 10;
+    cfg.top_k          = 30;
     cfg.mmr            = {1.0f, 0.2f};
 
     Pipeline pipeline(embeddings, asin_to_idx, idx_to_asin, user_history, cfg);

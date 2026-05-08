@@ -8,6 +8,7 @@
  *   user_vec = Σ (rating_i / 5.0) * item_vec_i
  *              ─────────────────────────────────
  *                   Σ (rating_i / 5.0)
+ * TODO: Update documentation formuala to [-1, 1] symmetric distribution
  *
  * This follows the two-tower architecture described in:
  *   Yi et al. (2019) — Sampling-Bias-Corrected Neural Modeling
