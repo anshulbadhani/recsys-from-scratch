@@ -1,62 +1,114 @@
 # recsys-from-scratch
-We are attempting to make a recommendation system in C++. We are going to submit this as our Design and Analysis of Algorithms project.
 
-We are making a history based recsys. Given the time we have to implement this. This would work extremely well for us. As updating and generating the user embeddings would be very easy and for the given constraints (time, compute, and no external libraries) this works really well. But the cons being, order of interactions will be ignored. Eg: "User bought charger before phone" and "User bought phone before charger" will be same for our system. But this is a trade off we can make. One actual concern might be users with longer history of interaction. As the avg will get very noisy. But for the MVP we will be ignoring that constraint.
+A high-performance Two-Tower Recommendation Engine built entirely from scratch in C++ – no external libraries, no frameworks, no shortcuts.
 
-One more important choice is, what are we making a recommnedation system for? Honestly, there are many choices. Like songs, movies, products, [GitHub Repositories](https://github.com/anshulbadhani/github_recsys) or something else? We are making it for recommending which item the user might be interested in buying based on previous interactions.
+**354× faster** than the unoptimized baseline. **0.33ms per user**. **81.18% catalog coverage**.
 
-Input: set of items user has previously rated/interacted with
-Output: ranked list of K items the user hasn't seen, ordered by predicted relevance
+## What it does
 
-Evaluation: you hold out the last item each user interacted with, try to retrieve it in your top-K, and measure Recall@K and NDCG@K. aka `leave one out` evaluation. (We will get baselines to compare with)
+Given a user's interaction history, the system retrieves and ranks a list of items they haven't seen, ordered by predicted relevance. Evaluated on 146,980 users from the Amazon Software dataset under strict leave-one-out protocol.
 
-Dataset source: https://mcauley.ucsd.edu/data/amazon_2023/ [3]
+The interesting part isn't the recommendation quality. It's that production-grade inference latency is achievable from first principles, without calling `faiss.index.search()` or any other library that hides what's actually happening.
 
 
-## Proposed Architecture
-- Item tower — MiniLM offline, once, in Python
-- User tower — weighted average of item embeddings, at inference, in C++
-- Retrieval — KD-tree in C++
-- Filtering — Bloom filter in C++
-- Ranking — MMR or cosine sort in C++ (maybe LinUCB if we could manage the online side of things)
+## Results
+
+| Configuration | Latency | Speedup | Coverage |
+|---|---|---|---|
+| Baseline (no opt.) | 116.8ms/user | 1× | — |
+| + Compiler (-O3) | 35.0ms/user | 3.34× | — |
+| + Candidate reduction | 31.7ms/user | 3.68× | — |
+| + AVX2 SIMD | 15.45ms/user | 7.56× | — |
+| + OpenMP (14 cores) | 4.36ms/user | 26.8× | — |
+| **+ PCA (384D → 64D)** | **0.33ms/user** | **354×** | — |
+
+| Method | Recall@10 | NDCG@10 | Coverage |
+|---|---|---|---|
+| Popularity Baseline | 0.0650 | 0.0315 | 0.01% |
+| Cosine Sort (384D) | 0.0168 | 0.0088 | 19.46% |
+| Adaptive MMR (384D) | 0.0118 | 0.0072 | 37.28% |
+| Cosine Sort (64D, signed) | 0.0124 | 0.0063 | 70.42% |
+| **Adaptive MMR (64D, signed)** | **0.0067** | **0.0043** | **81.18%** |
+
+The Popularity Baseline achieves the highest Recall by recommending the same 9 items to all 146,980 users. That's not a recommendation system – that's dataset memorization.
 
 
-## Evaluation
-- Basic ones
-    - Random – recommend random unseen items
-    - Popularity-based – recommend the most interacted-with items globally
-    - Most recent item – recommend items similar to the last item the user interacted with. One nearest neighbor in embedding space
-- Standard ones
-    - [[1205.2618] BPR: Bayesian Personalized Ranking from Implicit Feedback](https://arxiv.org/abs/1205.2618)
-    - ItemKNN – find items similar to what the user has interacted with using item-item cosine similarity
-- Upper bound reference (just for citing, not feasible to implement from scratch)
-    - SASRec — sequential transformer model, state of the art on most Amazon category benchmarks. 
+## Architecture
+<img width="558" height="433" alt="inference_pipeline" src="https://github.com/user-attachments/assets/f7c71418-f7ac-4e11-9d04-a246c9aefa45" />
+<br><br>
 
-Will use `Cornac` or `implicit` to benchmark and not re-invent the wheel
+**Offline (Python):** MiniLM embeddings → PCA reduction (384D → 64D) → artifacts for C++ pipeline
 
-## Papers
-- [[1205.2618] BPR: Bayesian Personalized Ranking from Implicit Feedback](https://arxiv.org/abs/1205.2618) [1]
-- [[1708.05031] Neural Collaborative Filtering](https://arxiv.org/abs/1708.05031)
-- [Sampling-Bias-Corrected Neural Modeling for Large Corpus Item Recommendations](https://research.google/pubs/sampling-bias-corrected-neural-modeling-for-large-corpus-item-recommendations/) [2]
-- [[2006.11632] Embedding-based Retrieval in Facebook Search](https://arxiv.org/abs/2006.11632)
-- [[1602.01585] Ups and Downs: Modeling the Visual Evolution of Fashion Trends with One-Class Collaborative Filtering](https://arxiv.org/abs/1602.01585)
-- [[1808.09781] Self-Attentive Sequential Recommendation](https://arxiv.org/abs/1808.09781) [4]
-- [[1603.09320] Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs](https://arxiv.org/abs/1603.09320) [5]
-- [1807.05614v2.pdf](https://arxiv.org/pdf/1807.05614)
+**Online (C++, zero dependencies):**
+- **User Embedding:** bipolar rating weights mapping 1★→−1, 3★→0, 5★→+1, projected onto unit hypersphere
+- **KD-Tree:** custom ANN retrieval, O(log N) with PCA preprocessing, built with `std::nth_element` (QuickSelect)
+- **Bloom Filter:** per-user seen-item filter, k=7 hash functions via double hashing, p=0.01 false positive rate
+- **Adaptive MMR:** novel extension of Maximal Marginal Relevance with position-dependent λ decay, unifying cosine sort and standard MMR as special cases
 
-## Project Structure
-Note: We will be using Javadoc headers style comments to make it more clear and referencable in the future
-This is till embedding generation stage
-TODO: update later
+
+
+## Novel Contributions
+
+**Adaptive MMR:** standard MMR applies the same λ at every position. This ignores that early recommendations should exploit relevance while later ones should explore diversity. We introduce position-dependent exponential decay:
+
+```
+λ_pos = λ_max × e^(−δ × pos)
+```
+
+Cosine sort (λ=1, δ=0) and standard MMR (λ=0.5, δ=0) are both special cases.
+
+**Bipolar signed weights:** mapping ratings to [−1, 1] instead of (0, 1] lets low ratings repel the user vector, dispersing it across the embedding space. Result: catalog coverage jumps from 17% to 70% for cosine sort, 26% to 81% for Adaptive MMR. One formula, 4× coverage improvement.
+
+
+
+## The optimization that mattered most
+
+PCA from 384D to 64D delivered a **13.2× single-step speedup**, the largest in the pipeline.
+
+At 384 dimensions, the KD-tree degrades to O(N) because all points become nearly equidistant (Beyer et al., 1999). The pruning condition almost never fires. The embedding matrix occupies 137MB, far exceeding L3 cache. Every node access is a main memory fetch at 70–100 cycle latency.
+
+At 64 dimensions, the matrix shrinks to ~23MB, the upper tree levels become L3-resident after warmup, and spatial pruning fires again. The quality cost: Recall@10 drops from 0.0168 to 0.0146. The speed gain: 13.2×.
+
+
+## Running
+
+**Requirements:** Docker, Docker Compose, AVX2-capable CPU (Intel Haswell or newer)
+
 ```bash
-.
+# Build and start container
+docker-compose build
+docker-compose up -d
+docker-compose exec recsys bash
+```
+
+```bash
+# Inside container: run offline preprocessing (Python)
+cd scripts
+bash run_scripts.bash
+
+# -- OR --
+uv sync
+uv run <script_name.py>
+
+# Build and run C++ inference engine
+cd ..
+mkdir -p build && cd build && cmake .. && make && cd ..
+./build/bin/main
+```
+
+Data is downloaded automatically by `scripts/01_download_data.py` from the Amazon Reviews 2023 dataset (Software category).
+
+
+## Project structure
+
+```bash
+recsys-from-scratch/
 ├── CMakeLists.txt
 ├── Dockerfile
-├── README.md
-├── bug_logs.md
-├── data
+├── data                                # data
 │   ├── embeddings
 │   │   ├── item_embedding_index.csv
+│   │   ├── item_embeddings copy.npy
 │   │   ├── item_embeddings.csv
 │   │   └── item_embeddings.npy
 │   ├── meta_Software.jsonl
@@ -64,52 +116,41 @@ TODO: update later
 │   ├── models
 │   ├── reviews_Software.jsonl
 │   ├── reviews_Software.jsonl.gz
-│   ├── test.csv
-│   └── train.csv
 ├── docker-compose.yml
-├── include
-│   ├── bloom_filter.h
-│   ├── data_loader.h
-│   ├── kdtree.h
-│   └── user_embedding.h
-├── random_stuff.md
 ├── scripts
-│   ├── 00_category_selection.py
+│   ├── 00_category_selection.py        # To study different data categories
 │   ├── 01_download_data.py
 │   ├── 02_check_data.py
 │   ├── 03_filter_data.py
-│   ├── 04_item_embedding.py
-│   ├── README.md
-│   ├── __pycache__
-│   │   ├── config.cpython-312.pyc
-│   │   └── config.cpython-314.pyc
-│   ├── config.py
-│   ├── issue_01_investigating_data_leak.py
-│   ├── main.py
-│   ├── pyproject.toml
-│   ├── run_scripts.bash
-│   └── uv.lock
-├── src
-│   ├── embeddings
-│   │   └── user_embedding.cpp
-│   ├── main.cpp
-│   ├── ranking
-│   ├── retrieval
-│   │   ├── bloom_filter.cpp
-│   │   └── kdtree.cpp
-│   └── utils
-│       └── data_loader.cpp
-├── tests
-└── todo.md
+│   ├── 04_item_embedding.py            # Generates embeddings using miniLM
+│   ├── 04b_apply_pca.py                # 384D -> 64D
+│   ├── 05_evaluate.py                  # To calculate performance metrics from generated result files
+│   └── config.py                       # all the settings for python scripts
+├── include
+│   ├── bloom_filter.h
+│   ├── config.h                        # settings for C++ files
+│   ├── data_loader.h                   # csv parser
+│   ├── kdtree.h
+│   ├── pipeline.h                      # to glue all components together
+│   ├── ranker.h
+│   └── user_embedding.h                # generates user embeddings
+└── src                                 # C++ source files
+    ├── embeddings
+    │   └── user_embedding.cpp
+    ├── main.cpp                        # program entry point
+    ├── pipeline.cpp
+    ├── ranking
+    │   └── ranker.cpp
+    ├── retrieva
+    │   ├── bloom_filter.cpp
+    │   └── kdtree.cpp
+    └── utils
+        └── data_loader.cpp
 ```
 
-## Running the project
-```bash
-docker-compose build
-docker-compose up -d
-docker-compose exec recsys bash
-```
-```bash
-mkdir -p build && cd build && cmake .. && make && cd ..
-./bin/main
-```
+
+## Future work
+
+- **HNSW:** graph-based ANN that achieves O(log N) regardless of dimensionality, eliminating the need for PCA and recovering the Recall@10 lost to dimensionality reduction
+- **LinUCB:** online feedback loop with provably sublinear regret O(d√T log T), the system currently has no way to adapt to evolving preferences
+- **SASRec:** self-attention over interaction sequences, capturing order signals the current bag-of-items embedding explicitly discards
